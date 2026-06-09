@@ -231,3 +231,155 @@
   debug:
     msg: "{{ redis_ping_admin.stdout }}"
 
+- name: Check and confirm connect to redis from user admin
+  command: redis-cli --user admin -a '{{ redis_admin_password }}' -c -h {{ ansible_host }} -p {{ redis_client_port }} cluster nodes
+  register: redis_cluster_nodes
+  changed_when: false
+  failed_when: false
+
+- name: Display result
+  debug:
+    msg: "{{ redis_cluster_nodes.stdout }}"
+
+- name: Check dir
+  command: redis-cli --user admin -a '{{ redis_admin_password }}' config get dir
+  register: redis_dir
+  changed_when: false
+  failed_when: false
+
+- name: Display result
+  debug:
+    msg: "{{ redis_dir.stdout }}"
+
+- name: Stop Redis service
+  systemd:
+    name: redis-server
+    state: stopped
+
+- name: Remove nodes-6379.conf
+  file:
+    path: /data/redis/6379/nodes-6379.conf
+    state: absent
+
+- name: Remove appendonlydir
+  command: rm -rf /data/redis/6379/appendonlydir/*
+  changed_when: false
+  failed_when: false
+
+- name: Remove dump.rdb
+  file:
+    path: /data/redis/6379/dump.rdb
+    state: absent
+  
+- name: Enable Redis service
+  systemd:
+    name: redis-server
+    state: started
+
+- name: Create Redis cluster
+  command: >
+    redis-cli --user admin -a '{{ redis_admin_password }}'
+    --cluster create
+    {% for host in groups['redis'] %}{{ hostvars[host]['ansible_host'] }}:{{ redis_client_port }} {% endfor %}
+    --cluster-replicas 1
+  run_once: true
+  delegate_to: "{{ groups['redis'][0] }}"
+
+- name: Check cluster info
+  command: redis-cli --user admin -a '{{ redis_admin_password }}' -c -h {{ hostvars[groups["redis"][0]]["ansible_host"] }} -p {{ redis_client_port }} cluster info
+  run_once: true
+  delegate_to: "{{ groups['redis'][0] }}"
+  register: redis_cluster_info
+  changed_when: false
+  failed_when: false
+
+- name: Display result
+  debug:
+    msg: "{{ redis_cluster_info.stdout }}"
+
+- name: Check cluster nodes
+  command: redis-cli --user admin -a '{{ redis_admin_password }}' -c -h {{ hostvars[groups["redis"][0]]["ansible_host"] }} -p {{ redis_client_port }} cluster nodes
+  run_once: true
+  delegate_to: "{{ groups['redis'][0] }}"
+  register: redis_cluster_nodes
+  changed_when: false
+  failed_when: false
+
+- name: Display result
+  debug:
+    msg: "{{ redis_cluster_nodes.stdout }}"
+
+- name: Check cluster state
+  command: redis-cli --user admin -a '{{ redis_admin_password }}' --cluster check {{ hostvars[groups["redis"][0]]["ansible_host"] }}:{{ redis_client_port }}
+  run_once: true
+  delegate_to: "{{ groups['redis'][0] }}"
+  register: redis_cluster_check
+  changed_when: false
+  failed_when: false
+
+- name: Display result
+  debug:
+    msg: "{{ redis_cluster_check.stdout }}"
+
+- name: Test write
+  command: redis-cli --user admin -a '{{ redis_admin_password }}' -c -h {{ hostvars[groups["redis"][0]]["ansible_host"] }} -p {{ redis_client_port }} set test:key1 hello
+  run_once: true
+  delegate_to: "{{ groups['redis'][0] }}"
+  register: redis_write
+  changed_when: false
+
+- name: Display write result
+  debug:
+    msg: "{{ redis_write.stdout }}"
+
+- name: Test read
+  command: redis-cli --user admin -a '{{ redis_admin_password }}' -c -h {{ hostvars[groups["redis"][0]]["ansible_host"] }} -p {{ redis_client_port }} get test:key1
+  run_once: true
+  delegate_to: "{{ groups['redis'][0] }}"
+  register: redis_read
+  changed_when: false
+
+- name: Display read result
+  debug:
+    msg: "{{ redis_read.stdout }}"
+
+- name: Check replication
+  command: redis-cli --user admin -a '{{ redis_admin_password }}' -c -h {{ hostvars[groups["redis"][0]]["ansible_host"] }} -p {{ redis_client_port }} cluster nodes
+  run_once: true
+  delegate_to: "{{ groups['redis'][0] }}"
+  register: redis_replication
+  changed_when: false
+
+- name: Display replication result
+  debug:
+    msg: "{{ redis_replication.stdout }}"
+
+- name: Check memory
+  command: redis-cli --user admin -a '{{ redis_admin_password }}' -c -h {{ hostvars[groups["redis"][0]]["ansible_host"] }} -p {{ redis_client_port }} info memory
+  run_once: true
+  delegate_to: "{{ groups['redis'][0] }}"
+  register: redis_memory
+  changed_when: false
+
+- name: Display memory result
+  debug:
+    msg: "{{ redis_memory.stdout }}"
+
+- name: Check slot coverage
+  command: redis-cli --user admin -a '{{ redis_admin_password }}' cluster info
+  delegate_to: "{{ groups['redis'][0] }}"
+  register: redis_slot
+  changed_when: false
+
+- name: Display slot coverage result
+  debug:
+    msg: "{{ redis_slot.stdout }}"
+
+- name: Check replication
+  command: redis-cli --user admin -a '{{ redis_admin_password }}' info replication
+  register: redis_replication
+  changed_when: false
+
+- name: Display replication result
+  debug:
+    msg: "{{ redis_replication.stdout }}"
