@@ -291,6 +291,7 @@
   systemd:
     name: redis-server
     state: started
+  failed_when: false
 
 - name: Check cluster already exists
   command: redis-cli --user admin -a '{{ redis_admin_password }}' -h {{ hostvars[groups["redis"][0]]["ansible_host"] }} -p {{ redis_client_port }} cluster info
