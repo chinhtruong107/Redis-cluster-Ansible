@@ -292,6 +292,7 @@
   register: redis_cluster_exists
   changed_when: false
   failed_when: false
+  tags: init_cluster
 
 - name: Create Redis cluster
   command: >
@@ -302,6 +303,7 @@
   run_once: true
   delegate_to: "{{ groups['redis'][0] }}"
   when: "'cluster_state:ok' not in redis_cluster_exists.stdout"
+  tags: init_cluster
 
 - name: Check cluster info
   command: redis-cli --user admin -a '{{ redis_admin_password }}' -c -h {{ hostvars[groups["redis"][0]]["ansible_host"] }} -p {{ redis_client_port }} cluster info
