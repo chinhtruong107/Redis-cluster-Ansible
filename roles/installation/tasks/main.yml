@@ -192,6 +192,14 @@
     group: redis
     recurse: yes
 
+- name: Create Redis PID directory
+  file:
+    path: /run/redis
+    state: directory
+    owner: redis
+    group: redis
+    mode: '0755'
+
 - name: Enable Redis service
   systemd:
     name: redis-server

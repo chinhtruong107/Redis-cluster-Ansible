@@ -1,6 +1,6 @@
 ---
 - name: Add node redis-07
-  hosts: redis
+  hosts: redis_new
   become: true
   vars_files:
     - ../group_vars/redis-cluster.yml
