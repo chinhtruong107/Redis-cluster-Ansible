@@ -192,13 +192,17 @@
     group: redis
     recurse: yes
 
-- name: Create Redis PID directory
-  file:
-    path: /run/redis
-    state: directory
-    owner: redis
-    group: redis
-    mode: '0755'
+- name: Create tmpfiles.d config for Redis PID dir
+  copy:
+    content: "d /run/redis 0755 redis redis -\n"
+    dest: /etc/tmpfiles.d/redis.conf
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Apply tmpfiles.d config
+  command: systemd-tmpfiles --create /etc/tmpfiles.d/redis.conf
+  changed_when: false
 
 - name: Enable Redis service
   systemd:
