@@ -1,0 +1,12 @@
+---
+- name: Install basic packages
+  apt:
+    name:
+      - curl
+      - vim
+      - net-tools
+      - gpg
+      - lsb-release
+    state: present
+    update_cache: yes
+

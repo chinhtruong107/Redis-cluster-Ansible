@@ -1,0 +1,169 @@
+---
+- name: Add hosts entries
+  lineinfile:
+    path: /etc/hosts
+    line: "{{ hostvars[item]['redis_host'] }} {{ item }}"
+    state: present
+  loop: "{{ groups['redis'] }}"
+
+- name: Download Redis GPG key
+  get_url:
+    url: https://packages.redis.io/gpg
+    dest: /tmp/redis.gpg
+
+- name: Convert GPG key
+  command:
+    cmd: gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg /tmp/redis.gpg
+    creates: /usr/share/keyrings/redis-archive-keyring.gpg
+
+- name: Add Redis repository
+  apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb {{ ansible_distribution_release }} main"
+    filename: redis
+    state: present
+
+- name: Install Redis
+  apt:
+    name: redis
+    state: present
+    update_cache: true
+
+- name: Check Redis version
+  command: redis-server --version
+  register: redis_version
+  changed_when: false
+
+- name: Display Redis version
+  debug:
+    msg: "{{ redis_version.stdout }}"
+
+- name: Status Redis service
+  command: systemctl status redis-server
+  register: redis_status
+  changed_when: false
+  failed_when: false
+
+- name: Display Redis status
+  debug:
+    msg: "{{ redis_status.stdout }}"
+
+- name: Stop Redis service
+  systemd:
+    name: redis-server
+    state: stopped
+
+- name: Disable Redis service
+  systemd:
+    name: redis-server
+    enabled: false
+
+- name: Create disable-thp.service
+  template:
+    src: disable-thp.service.j2
+    dest: "/etc/systemd/system/disable-thp.service"
+    owner: root
+    group: root
+
+- name: Reload daemon service
+  systemd:
+    daemon_reload: yes
+
+- name: Enable and start disable-thp service
+  systemd:
+    name: disable-thp
+    enabled: true
+    state: started
+
+- name: Create 99-redis.conf
+  template:
+    src: 99-redis.conf.j2
+    dest: "/etc/sysctl.d/99-redis.conf"
+    owner: root
+    group: root
+
+- name: Reload sysctl
+  command: sysctl --system
+  changed_when: false
+
+- name: Check DATA Disk
+  command: lsblk
+  register: redis_disk
+  changed_when: false
+
+- name: Display DATA Disk
+  debug:
+    msg: "{{ redis_disk.stdout }}"
+
+- name: Check mount point
+  command: df -h
+  register: redis_mount
+  changed_when: false
+
+- name: Display mount point
+  debug:
+    msg: "{{ redis_mount.stdout }}"
+
+- name: Create Redis data directory
+  file:
+    path: /data/redis/6379
+    state: directory
+    mode: '0750'
+
+- name: Check /data mount
+  command: findmnt /data
+  register: data_mount
+  changed_when: false
+
+- name: Display /data mount
+  debug:
+    msg: "{{ data_mount.stdout }}"
+
+- name: Create test file
+  file:
+    path: /data/.rw-test
+    state: touch
+
+- name: Remove test file
+  file:
+    path: /data/.rw-test
+    state: absent
+
+- name: Check /data filesystem
+  command: df -h /data
+  register: data_df
+  changed_when: false
+
+- name: Display /data filesystem
+  debug:
+    msg: "{{ data_df.stdout }}"
+
+- name: Set ownership for Redis data directory
+  file:
+    path: /data/redis
+    owner: redis
+    group: redis
+    recurse: true
+
+- name: Create write test file as redis user
+  file:
+    path: /data/redis/{{ redis_client_port }}/.rw-test
+    state: touch
+  become: true
+  become_user: redis
+
+- name: Remove write test file
+  file:
+    path: /data/redis/{{ redis_client_port }}/.rw-test
+    state: absent
+
+- name: Backup redis.conf
+  command: cp /etc/redis/redis.conf /etc/redis/redis.conf.bak
+
+- name: Deploy redis.conf
+  template:
+    src: redis.conf.j2
+    dest: /etc/redis/redis.conf
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true

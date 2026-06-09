@@ -1,0 +1,5 @@
+redis_client_port: 6379
+redis_cluster_port: 16379
+
+redis_verrsion: "8.6.1"
+

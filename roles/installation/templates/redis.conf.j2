@@ -1,0 +1,50 @@
+bind 0.0.0.0
+protected-mode no
+
+port {{ redis_client_port }}
+cluster-port {{ redis_cluster_port }}
+cluster-announce-ip {{ ansible_default_ipv4.address }}
+cluster-announce-port {{ redis_client_port }}
+cluster-announce-bus-port {{ redis_cluster_port }}
+
+tcp-backlog 65535
+timeout 0
+tcp-keepalive 300
+
+daemonize no
+supervised systemd
+pidfile /run/redis/redis-server.pid
+
+loglevel notice
+logfile ""
+
+dir /data/redis/{{ redis_client_port }}
+cluster-config-file /data/redis/{{ redis_client_port }}/nodes-{{ redis_client_port }}.conf
+
+dbfilename dump.rdb
+
+appendonly yes
+appendfilename "appendonly.aof"
+appendfsync everysec
+
+auto-aof-rewrite-percentage 100
+auto-aof-rewrite-min-size 1gb
+
+save 900 1
+save 300 10
+save 60 10000
+
+maxmemory 512mb
+maxmemory-policy noeviction
+
+lazyfree-lazy-eviction yes
+lazyfree-lazy-expire yes
+lazyfree-lazy-server-del yes
+
+cluster-enabled yes
+cluster-node-timeout 15000
+cluster-require-full-coverage yes
+
+aclfile /etc/redis/users.acl
+masteruser repl
+masterauth RedisRepl@2026
