@@ -7,13 +7,12 @@ Automated deployment of a 6-node Redis Cluster on AWS EC2 using Ansible.
 ## Requirements
 
 - Control node: Ubuntu 22.04 with Ansible installed
-- 6 managed nodes: Ubuntu 22.04 EC2 instances
+- 6 managed nodes: Ubuntu 22.04 EC2 t2.micro instances
 - SSH key pair for EC2 access
 - AWS Security Group with ports open:
   - 22/tcp
   - 6379/tcp
   - 16379/tcp
-- Dedicated data volume mounted at `/data`
 
 ---
 
@@ -27,15 +26,12 @@ Redis-Cluster/
 ├── group_vars/
 │   └── redis-cluster.yml
 ├── playbooks/
-│   └── playbook.yml
+│   ├── playbook.yml
+│   └── scale.yml
 ├── roles/
 │   ├── common/
-│   └── installation/
-├── templates/
-│   ├── disable-thp.service.j2
-│   ├── 99-redis.conf.j2
-│   ├── redis.conf.j2
-│   └── users.acl.j2
+│   ├── installation/
+│   └── scale/
 └── README.md
 ```
 
@@ -47,15 +43,13 @@ Cluster topology:
 
 ```text
 redis-01  ─┐
-redis-02  ─┼── Primary Nodes
+redis-02  ─┼── Primary Nodes (Master)
 redis-03  ─┘
 
 redis-04  ─┐
 redis-05  ─┼── Replica Nodes
 redis-06  ─┘
 ```
-
-Deployment target:
 
 ```text
 3 Primary Nodes
@@ -71,70 +65,56 @@ Replication Factor = 1
 Edit `group_vars/redis-cluster.yml`:
 
 ```yaml
-# SSH
-ansible_user: ubuntu
-ansible_ssh_private_key_file: <PRIVATE_KEY_PATH>
-
-# Redis
 redis_client_port: 6379
 redis_cluster_port: 16379
-
-# Memory
 redis_maxmemory: 512mb
-
-# Replication
 redis_master_user: repl
 redis_master_password: <REPLICATION_PASSWORD>
+redis_admin_password: <ADMIN_PASSWORD>
+redis_cluster_replicas: 1
 ```
 
 Edit `inventory/inventory.ini`:
 
 ```ini
 [redis]
-redis-01 ansible_host=10.0.1.11
-redis-02 ansible_host=10.0.1.12
-redis-03 ansible_host=10.0.1.13
-redis-04 ansible_host=10.0.1.14
-redis-05 ansible_host=10.0.1.15
-redis-06 ansible_host=10.0.1.16
+redis-01 ansible_host=172.31.x.x
+redis-02 ansible_host=172.31.x.x
+redis-03 ansible_host=172.31.x.x
+redis-04 ansible_host=172.31.x.x
+redis-05 ansible_host=172.31.x.x
+redis-06 ansible_host=172.31.x.x
+
+[redis:vars]
+ansible_user=ubuntu
+ansible_ssh_private_key_file=~/.ssh/redis-cluster.pem
 ```
 
 ---
 
-## What This Playbook Configures
+## What This Playbook Does
 
-### System Configuration
-
+### common role
 - Update package cache
 - Install required packages
 - Configure `/etc/hosts`
+
+### installation role
+- Install Redis from official Redis repository
 - Disable Transparent Huge Pages (THP)
-- Configure kernel tuning parameters
-
-### Sysctl Tuning
-
-```text
-vm.overcommit_memory = 1
-net.core.somaxconn = 65535
-net.ipv4.tcp_max_syn_backlog = 65535
-```
-
-### Redis Configuration
-
-- Install Redis from the official Redis repository
+- Kernel tuning: `vm.overcommit_memory`, `somaxconn`, `tcp_max_syn_backlog`
 - Configure Redis Cluster mode
-- Configure persistence:
-  - RDB
-  - AOF
-- Configure replication authentication
-- Configure ACL authentication
-- Configure data directory
+- Configure persistence (RDB + AOF)
+- Configure ACL authentication (admin, app, repl users)
+- Configure systemd override (file descriptor limit, data directory permissions)
+- Create Redis Cluster (6 nodes, 3 master + 3 replica)
+- Run functional tests: read/write, replication, failover, recovery
 
-### Storage Validation
-
-- Verify mounted `/data`
-- Verify write access
-- Verify ownership and permissions
+### scale role
+- Setup new node (via common + installation)
+- Add new master node to existing cluster
+- Rebalance slots across all masters
+- Verify cluster health after scale
 
 ---
 
@@ -146,247 +126,130 @@ net.ipv4.tcp_max_syn_backlog = 65535
 ansible redis -i inventory/inventory.ini -m ping
 ```
 
-Expected output:
-
-```text
-SUCCESS => pong
-```
-
----
-
-### Run Deployment
+### Deploy Cluster
 
 ```bash
-ansible-playbook \
--i inventory/inventory.ini \
-playbooks/playbook.yml \
---become
+ansible-playbook -i inventory/inventory.ini playbooks/playbook.yml --become
 ```
-
----
 
 ### Dry Run
 
 ```bash
-ansible-playbook \
--i inventory/inventory.ini \
-playbooks/playbook.yml \
---check \
---become
+ansible-playbook -i inventory/inventory.ini playbooks/playbook.yml --check --become
+```
+
+### Reset and Recreate Cluster
+
+```bash
+# Reset data on all nodes
+ansible -i inventory/inventory.ini redis -m shell \
+  -a "systemctl stop redis-server && \
+      rm -f /data/redis/6379/nodes-6379.conf && \
+      rm -rf /data/redis/6379/appendonlydir/* && \
+      rm -f /data/redis/6379/dump.rdb && \
+      systemctl start redis-server" \
+  --become
+
+# Recreate cluster
+ansible-playbook -i inventory/inventory.ini playbooks/playbook.yml \
+  --become --tags init_cluster
 ```
 
 ---
 
-## Verify Installation
+## Tags
 
-### Redis Version
+| Tag | Description |
+|---|---|
+| `init_cluster` | Run cluster creation tasks only |
+| `reset_cluster` | Clear old data and restart Redis on all nodes |
+| `test_failover` | Run failover test (stop/start redis-01) |
 
+Example — skip failover test:
 ```bash
-redis-server --version
+ansible-playbook -i inventory/inventory.ini playbooks/playbook.yml \
+  --become --skip-tags test_failover
 ```
-
-### Service Status
-
-```bash
-systemctl status redis-server
-```
-
-### Verify Listening Ports
-
-```bash
-ss -lntp | grep -E '6379|16379'
-```
-
-Expected:
-
-```text
-6379  -> Client Port
-16379 -> Cluster Bus Port
-```
-
-### Verify Data Directory
-
-```bash
-redis-cli config get dir
-```
-
-Expected:
-
-```text
-dir
-/data/redis/6379
-```
-
----
-
-## Create Redis Cluster
-
-Run from any node:
-
-```bash
-redis-cli --cluster create \
-10.0.1.11:6379 \
-10.0.1.12:6379 \
-10.0.1.13:6379 \
-10.0.1.14:6379 \
-10.0.1.15:6379 \
-10.0.1.16:6379 \
---cluster-replicas 1
-```
-
-Confirm:
-
-```text
-Can I set the above configuration? (type 'yes' to accept)
-```
-
-Type:
-
-```text
-yes
-```
-
----
-
-## Verify Cluster
-
-### Cluster Status
-
-```bash
-redis-cli -c -h 10.0.1.11 cluster info
-```
-
-Expected:
-
-```text
-cluster_state:ok
-cluster_slots_assigned:16384
-```
-
-### Cluster Nodes
-
-```bash
-redis-cli -c -h 10.0.1.11 cluster nodes
-```
-
-Expected node format:
-
-```text
-10.0.1.x:6379@16379
-```
-
----
-
-## Functional Testing
-
-### Read / Write Test
-
-```bash
-redis-cli -c -h 10.0.1.11
-```
-
-```redis
-SET test:key1 hello
-GET test:key1
-```
-
-Expected:
-
-```text
-hello
-```
-
----
-
-### Replication Verification
-
-```bash
-redis-cli info replication
-```
-
----
-
-### Memory Verification
-
-```bash
-redis-cli info memory
-```
-
----
-
-### Slot Coverage Verification
-
-```bash
-redis-cli cluster info
-```
-
-Expected:
-
-```text
-cluster_slots_ok:16384
-```
-
----
-
-## Failover Test
-
-Stop a primary node:
-
-```bash
-systemctl stop redis-server
-```
-
-Verify cluster:
-
-```bash
-redis-cli -c -h 10.0.1.12 cluster nodes
-```
-
-Expected:
-
-- Replica promoted to Primary
-- Cluster remains healthy
-- Automatic failover occurs
-
-Restart node:
-
-```bash
-systemctl start redis-server
-```
-
-Expected:
-
-- Node rejoins cluster
-- Replication restored
 
 ---
 
 ## Scale Out
 
-### Add New Primary Node
+### Prepare
 
-```bash
-redis-cli --cluster add-node \
-10.0.1.20:6379 \
-10.0.1.11:6379
+Add the new node to `inventory/inventory.ini`:
+
+```ini
+[redis_new]
+redis-07 ansible_host=172.31.x.x
 ```
 
-Rebalance slots:
+### Run Scale Playbook
 
 ```bash
-redis-cli --cluster rebalance \
-10.0.1.11:6379 \
---cluster-use-empty-masters
+ansible-playbook -i inventory/inventory.ini playbooks/scale.yml \
+  --become --skip-tags init_cluster
 ```
 
-### Add Replica Node
+The scale playbook will automatically:
+1. Setup the new node (install Redis, configure, start service)
+2. Add the node to the existing cluster
+3. Rebalance slots across all masters
+4. Verify cluster health after scale
+
+---
+
+## Troubleshooting
+
+### Redis fails to start
 
 ```bash
-redis-cli --cluster add-node \
-10.0.1.21:6379 \
-10.0.1.11:6379 \
---cluster-slave \
---cluster-master-id <MASTER_ID>
+# Check logs
+sudo journalctl -xeu redis-server.service | tail -30
+
+# Test config directly
+sudo redis-server /etc/redis/redis.conf 2>&1 | head -20
+
+# Recreate PID directory (cleared on reboot)
+sudo mkdir -p /run/redis && sudo chown redis:redis /run/redis
+sudo chmod 755 /data
+sudo systemctl start redis-server
+```
+
+### Cluster state is fail
+
+```bash
+# Check cluster status
+redis-cli --user admin -a '<PASSWORD>' -h <NODE_IP> -p 6379 cluster info
+
+# Check node list
+redis-cli --user admin -a '<PASSWORD>' -h <NODE_IP> -p 6379 cluster nodes
+
+# Check cluster health
+redis-cli --cluster check <NODE_IP>:6379 --user admin -a '<PASSWORD>'
+```
+
+### Ghost node in cluster (disconnected)
+
+```bash
+# Remove ghost node from all nodes
+ansible -i inventory/inventory.ini redis -m shell \
+  -a "redis-cli --user admin -a '<PASSWORD>' cluster forget <NODE_ID>" \
+  --become
+```
+
+### Missing slot
+
+```bash
+# Reassign missing slot
+redis-cli --user admin -a '<PASSWORD>' -h <NODE_IP> -p 6379 cluster addslots <SLOT_NUMBER>
+```
+
+### Check file descriptor limit
+
+```bash
+cat /proc/$(pidof redis-server)/limits | grep "Max open files"
+# Expected: 100000
 ```
 
 ---
@@ -394,55 +257,21 @@ redis-cli --cluster add-node \
 ## Security Group Rules
 
 | Port | Protocol | Purpose |
-|--------|----------|----------|
+|---|---|---|
 | 22 | TCP | SSH |
 | 6379 | TCP | Redis Client Port |
 | 16379 | TCP | Redis Cluster Bus |
 
-All Redis nodes must be able to communicate with each other on both Redis ports.
+Both Redis ports must be open between all nodes (self-referencing Security Group rule).
 
 ---
 
-## Roles
+## Notes
 
-| Role | Responsibility |
-|--------|---------------|
-| `common` | Common host configuration and prerequisites |
-| `installation` | Redis installation, tuning, storage validation, configuration deployment |
-
----
-
-## Troubleshooting
-
-### Check Redis Logs
-
-```bash
-journalctl -u redis-server -f
-```
-
-### Check Cluster Health
-
-```bash
-redis-cli --cluster check <NODE_IP>:6379
-```
-
-### Check Redis Ports
-
-```bash
-ss -lntp | grep redis
-```
-
-### Check Open File Limits
-
-```bash
-cat /proc/$(pidof redis-server)/limits | grep "Max open files"
-```
-
-Expected:
-
-```text
-Max open files 100000 100000 files
-```
+- `maxmemory` is set to 512mb to fit within t2.micro (1GB RAM)
+- `/run/redis` is cleared on reboot — handled automatically via `tmpfiles.d`
+- Cluster creation only runs when `cluster_state:ok` and `cluster_known_nodes:6` are not yet satisfied
+- Use `--skip-tags init_cluster` when re-running the playbook against an existing cluster
 
 ---
 
