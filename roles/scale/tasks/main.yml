@@ -1,11 +1,12 @@
 - name: Add node redis-07
   command: >
     redis-cli --cluster add-node
-    {{ hostvars[groups["redis"][6]]["ansible_host"] }}:{{ redis_client_port }}
+    {{ hostvars[groups["redis_new"][0]]["ansible_host"] }}:{{ redis_client_port }}
     {{ hostvars[groups["redis"][0]]["ansible_host"] }}:{{ redis_client_port }}
     --user admin
     -a '{{ redis_admin_password }}'
   delegate_to: "{{ groups['redis'][0] }}"
+  run_once: true
   register: redis_add_node
   changed_when: false
 
@@ -16,11 +17,12 @@
 - name: Rebalance slots
   command: >
     redis-cli --cluster rebalance
-    {{ hostvars[groups["redis"][0]]["ansible_host"] }}:{{ redis_client_port }} 
+    {{ hostvars[groups["redis"][0]]["ansible_host"] }}:{{ redis_client_port }}
     --user admin
     -a '{{ redis_admin_password }}'
     --cluster-use-empty-masters
   delegate_to: "{{ groups['redis'][0] }}"
+  run_once: true
   register: redis_rebalance
   changed_when: false
 
@@ -29,7 +31,11 @@
     msg: "{{ redis_rebalance.stdout }}"
 
 - name: Check cluster after scale
-  command: redis-cli --cluster check {{ hostvars[groups["redis"][0]]["ansible_host"] }}:{{ redis_client_port }} --user admin -a '{{ redis_admin_password }}'
+  command: >
+    redis-cli --cluster check
+    {{ hostvars[groups["redis"][0]]["ansible_host"] }}:{{ redis_client_port }}
+    --user admin
+    -a '{{ redis_admin_password }}'
   delegate_to: "{{ groups['redis'][0] }}"
   run_once: true
   register: redis_cluster_check
@@ -38,4 +44,3 @@
 - name: Display result
   debug:
     msg: "{{ redis_cluster_check.stdout }}"
-
