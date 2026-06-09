@@ -2,7 +2,7 @@
 - name: Add hosts entries
   lineinfile:
     path: /etc/hosts
-    line: "{{ hostvars[item]['redis_host'] }} {{ item }}"
+    line: "{{ hostvars[item]['ansible_host'] }} {{ item }}"
     state: present
   loop: "{{ groups['redis'] }}"
 
