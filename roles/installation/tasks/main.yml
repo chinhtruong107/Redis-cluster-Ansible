@@ -276,6 +276,14 @@
     name: redis-server
     state: started
 
+- name: Check cluster already exists
+  command: redis-cli --user admin -a '{{ redis_admin_password }}' -h {{ hostvars[groups["redis"][0]]["ansible_host"] }} -p {{ redis_client_port }} cluster info
+  run_once: true
+  delegate_to: "{{ groups['redis'][0] }}"
+  register: redis_cluster_exists
+  changed_when: false
+  failed_when: false
+
 - name: Create Redis cluster
   command: >
     redis-cli --user admin -a '{{ redis_admin_password }}'
@@ -284,6 +292,7 @@
     --cluster-replicas 1
   run_once: true
   delegate_to: "{{ groups['redis'][0] }}"
+  when: "'cluster_state:ok' not in redis_cluster_exists.stdout"
 
 - name: Check cluster info
   command: redis-cli --user admin -a '{{ redis_admin_password }}' -c -h {{ hostvars[groups["redis"][0]]["ansible_host"] }} -p {{ redis_client_port }} cluster info
@@ -461,3 +470,4 @@
 - name: Display replication recovery result
   debug:
     msg: "{{ redis_replication_recovery.stdout }}"
+

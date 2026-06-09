@@ -1,0 +1,8 @@
+---
+- name: Add node redis-07
+  hosts: redis
+  become: true
+  vars_files:
+    - ../group_vars/redis-cluster.yml
+  roles:
+    - scale
