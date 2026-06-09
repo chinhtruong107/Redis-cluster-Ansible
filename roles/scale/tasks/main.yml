@@ -14,6 +14,10 @@
   debug:
     msg: "{{ redis_add_node.stdout }}"
 
+- name: Wait for cluster to sync
+  pause:
+    seconds: 10
+
 - name: Rebalance slots
   command: >
     redis-cli --cluster rebalance
