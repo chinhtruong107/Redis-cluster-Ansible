@@ -23,7 +23,8 @@
     state: directory
 
 - name: Unzip backup file
-  command: tar -xzf /data/backup/redis/backup_{{ inventory_hostname }}_{{ backup_timestamp }}.tar.gz -C /tmp/redis-restore
+  shell: tar -xzf $(ls /data/backup/redis/backup_{{ inventory_hostname }}_*.tar.gz | tail -1) -C /tmp/redis-restore
+  changed_when: false
 
 - name: Copy RDB
   shell: cp /tmp/redis-restore/dump_{{ backup_timestamp }}.rdb /data/redis/{{ redis_client_port }}/dump.rdb
