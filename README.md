@@ -33,6 +33,8 @@ Redis-Cluster/
 ├── roles/
 │   ├── common/
 │   ├── installation/
+│   ├── cluster/
+│   ├── testing/
 │   ├── backup/
 │   ├── restore/
 │   └── scale/
@@ -102,18 +104,31 @@ ansible_ssh_private_key_file=~/.ssh/redis-cluster.pem
 ### common role
 - Update package cache
 - Install required packages
-- Configure `/etc/hosts`
 
 ### installation role
+- Configure `/etc/hosts`
 - Install Redis from official Redis repository
 - Disable Transparent Huge Pages (THP)
 - Kernel tuning: `vm.overcommit_memory`, `somaxconn`, `tcp_max_syn_backlog`
-- Configure Redis Cluster mode
-- Configure persistence (RDB + AOF)
-- Configure ACL authentication (admin, app, repl users)
-- Configure systemd override (file descriptor limit, data directory permissions)
-- Create Redis Cluster (6 nodes, 3 master + 3 replica)
-- Run functional tests: read/write, replication, failover, recovery
+- Create data directory and set permissions
+- Configure `redis.conf`, `users.acl`, systemd override
+- Configure tmpfiles.d for PID directory
+- Enable and start Redis service
+- Verify port, ping, cluster nodes, data directory
+
+### cluster role
+- Reset cluster data (`reset_cluster` tag)
+- Create Redis Cluster (`init_cluster` tag)
+- Verify cluster: info, nodes, health check
+- Test read/write
+- Verify replication, memory, slot coverage
+
+### testing role
+- Stop redis-01 to trigger failover
+- Verify replica is promoted to master
+- Restart redis-01 and verify rejoin
+- Test read/write after failover
+- Verify replication after recovery
 
 ### backup role
 - Trigger AOF rewrite (`bgrewriteaof`) and wait for completion
@@ -130,7 +145,6 @@ ansible_ssh_private_key_file=~/.ssh/redis-cluster.pem
 - Verify connectivity and replication status
 
 ### scale role
-- Setup new node (install Redis, configure, start service)
 - Add new master node to existing cluster
 - Rebalance slots across all masters
 - Verify cluster health after scale
@@ -215,12 +229,6 @@ Each node backs up its own data independently. Backup includes both AOF and RDB 
 
 ## Restore
 
-Set the target timestamp in `group_vars/redis-cluster.yml`:
-
-```yaml
-backup_timestamp: "1781058291"
-```
-
 Run restore on all nodes:
 
 ```bash
@@ -246,6 +254,18 @@ Add the new node to `inventory/inventory.ini`:
 ```ini
 [redis_new]
 redis-07 ansible_host=172.31.x.x
+```
+
+Reset the new node's data before adding to cluster:
+
+```bash
+ansible -i inventory/inventory.ini redis_new -m shell \
+  -a "systemctl stop redis-server && \
+      rm -f /data/redis/6379/nodes-6379.conf && \
+      rm -rf /data/redis/6379/appendonlydir/* && \
+      rm -f /data/redis/6379/dump.rdb && \
+      systemctl start redis-server" \
+  --become
 ```
 
 ### Run Scale Playbook
@@ -337,6 +357,7 @@ Both Redis ports must be open between all nodes (self-referencing Security Group
 - Cluster creation only runs when `cluster_state:ok` and `cluster_known_nodes:6` are not yet satisfied
 - Use `--skip-tags init_cluster` when re-running the playbook against an existing cluster
 - Each node stores its own backup independently — restore uses the latest available backup per node
+- New node must have clean data before being added to an existing cluster
 
 ---
 
