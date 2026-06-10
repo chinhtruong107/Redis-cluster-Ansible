@@ -22,6 +22,18 @@
 - name: Copy AOF directory to backup
   command: cp -r /data/redis/{{ redis_client_port }}/appendonlydir /data/backup/redis/appendonlydir_{{ ansible_date_time.epoch }}
 
+- name: Trigger RDB snapshot
+  command: redis-cli --user admin -a '{{ redis_admin_password }}' bgsave
+  changed_when: false
+
+- name: Wait RDB snapshot complete
+  shell: redis-cli --user admin -a '{{ redis_admin_password }}' info persistence | grep rdb_bgsave_in_progress
+  register: rdb_status
+  until: "'rdb_bgsave_in_progress:0' in rdb_status.stdout"
+  retries: 10
+  delay: 3
+  changed_when: false
+
 - name: Copy RDB file to backup
   command: cp /data/redis/{{ redis_client_port }}/dump.rdb /data/backup/redis/dump_{{ ansible_date_time.epoch }}.rdb
 
