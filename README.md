@@ -27,10 +27,14 @@ Redis-Cluster/
 │   └── redis-cluster.yml
 ├── playbooks/
 │   ├── playbook.yml
+│   ├── backup.yml
+│   ├── restore.yml
 │   └── scale.yml
 ├── roles/
 │   ├── common/
 │   ├── installation/
+│   ├── backup/
+│   ├── restore/
 │   └── scale/
 └── README.md
 ```
@@ -72,6 +76,7 @@ redis_master_user: repl
 redis_master_password: <REPLICATION_PASSWORD>
 redis_admin_password: <ADMIN_PASSWORD>
 redis_cluster_replicas: 1
+backup_timestamp: <TIMESTAMP>
 ```
 
 Edit `inventory/inventory.ini`:
@@ -110,8 +115,22 @@ ansible_ssh_private_key_file=~/.ssh/redis-cluster.pem
 - Create Redis Cluster (6 nodes, 3 master + 3 replica)
 - Run functional tests: read/write, replication, failover, recovery
 
+### backup role
+- Trigger AOF rewrite (`bgrewriteaof`) and wait for completion
+- Trigger RDB snapshot (`bgsave`) and wait for completion
+- Copy AOF directory and RDB file to `/data/backup/redis/`
+- Compress backup into `.tar.gz` per node with timestamp
+
+### restore role
+- Stop Redis service
+- Clear existing data (AOF, RDB, cluster config)
+- Extract latest backup from `/data/backup/redis/`
+- Restore AOF and RDB files
+- Fix ownership and start Redis service
+- Verify connectivity and replication status
+
 ### scale role
-- Setup new node (via common + installation)
+- Setup new node (install Redis, configure, start service)
 - Add new master node to existing cluster
 - Rebalance slots across all masters
 - Verify cluster health after scale
@@ -170,6 +189,51 @@ Example — skip failover test:
 ansible-playbook -i inventory/inventory.ini playbooks/playbook.yml \
   --become --skip-tags test_failover
 ```
+
+---
+
+## Backup
+
+Run backup on all nodes:
+
+```bash
+ansible-playbook -i inventory/inventory.ini playbooks/backup.yml --become
+```
+
+Backup files are stored at `/data/backup/redis/` on each node:
+
+```text
+/data/backup/redis/
+├── appendonlydir_<timestamp>/
+├── dump_<timestamp>.rdb
+└── backup_<hostname>_<timestamp>.tar.gz
+```
+
+Each node backs up its own data independently. Backup includes both AOF and RDB files.
+
+---
+
+## Restore
+
+Set the target timestamp in `group_vars/redis-cluster.yml`:
+
+```yaml
+backup_timestamp: "1781058291"
+```
+
+Run restore on all nodes:
+
+```bash
+ansible-playbook -i inventory/inventory.ini playbooks/restore.yml --become
+```
+
+The restore playbook will automatically:
+1. Stop Redis service
+2. Clear existing data
+3. Extract the latest backup matching the node's hostname
+4. Restore AOF and RDB files
+5. Fix ownership and restart Redis
+6. Verify connectivity and replication
 
 ---
 
@@ -272,6 +336,7 @@ Both Redis ports must be open between all nodes (self-referencing Security Group
 - `/run/redis` is cleared on reboot — handled automatically via `tmpfiles.d`
 - Cluster creation only runs when `cluster_state:ok` and `cluster_known_nodes:6` are not yet satisfied
 - Use `--skip-tags init_cluster` when re-running the playbook against an existing cluster
+- Each node stores its own backup independently — restore uses the latest available backup per node
 
 ---
 
