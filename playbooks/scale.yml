@@ -7,6 +7,8 @@
   roles:
     - common
     - installation
+    - cluster
+    - testing
 
 - name: Scale Redis cluster
   hosts: redis_new

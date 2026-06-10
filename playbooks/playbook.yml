@@ -1,16 +1,11 @@
 ---
-- name: Provision all nodes
+- name: Deploy Redis Cluster
   hosts: redis
   become: true
   vars_files:
     - ../group_vars/redis-cluster.yml
   roles:
     - common
-
-- name: Install Redis
-  hosts: redis
-  become: true
-  vars_files:
-    - ../group_vars/redis-cluster.yml
-  roles:
     - installation
+    - cluster
+    - testing
