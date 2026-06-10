@@ -23,14 +23,14 @@
     state: directory
 
 - name: Unzip backup file
-  command: tar -xzf /data/backup/redis/{{ backup_file }} -C /tmp/redis-restore
-
-- name: Copy data directory
-  shell: cp -r /tmp/redis-restore/appendonlydir/* /data/redis/{{ redis_client_port }}/appendonlydir/
-  changed_when: false
+  command: tar -xzf /data/backup/redis/backup_{{ inventory_hostname }}_{{ backup_timestamp }}.tar.gz -C /tmp/redis-restore
 
 - name: Copy RDB
-  shell: cp /tmp/redis-restore/dump_*.rdb /data/redis/{{ redis_client_port }}/dump.rdb
+  shell: cp /tmp/redis-restore/dump_{{ backup_timestamp }}.rdb /data/redis/{{ redis_client_port }}/dump.rdb
+  changed_when: false
+
+- name: Copy data directory
+  shell: cp -r /tmp/redis-restore/appendonlydir_{{ backup_timestamp }}/* /data/redis/{{ redis_client_port }}/appendonlydir/
   changed_when: false
 
 - name: Set ownership for Redis data directory

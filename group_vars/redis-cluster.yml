@@ -10,4 +10,5 @@ redis_admin_password: "RedisAdmin@2026"
 redis_app_password: "RedisApp@2026"
 redis_repl_password: "RedisRepl@2026"
 
-backup_file: "backup_redis-01_1781058291.tar.gz"
+backup_file: "backup_redis-01"
+backup_timestamp: "1781058291"
